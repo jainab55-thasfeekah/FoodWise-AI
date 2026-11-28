@@ -1,716 +1,355 @@
+
 import streamlit as st
 import pandas as pd
 import numpy as np
-import sqlite3
 import plotly.express as px
-from io import BytesIO
-from datetime import date, timedelta
-from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import OneHotEncoder
-from sklearn.pipeline import Pipeline
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet
-
-# --------------------------------------------------
-# CONFIGURATION
-# --------------------------------------------------
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, r2_score
+from datetime import date
+from io import BytesIO
 
 st.set_page_config(
     page_title="FoodWise AI",
-    page_icon="🍽️",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_icon="🍃",
+    layout="wide"
 )
-
-DB_NAME = "foodwise.db"
-
-REQUIRED_COLUMNS = [
-    "date", "meal", "food_item", "attendance",
-    "prepared_quantity", "consumed_quantity"
-]
-
-MODEL_FEATURES = [
-    "attendance", "day", "meal", "food_item", "special_event"
-]
-
-# --------------------------------------------------
-# CUSTOM DARK CHARCOAL + PURPLE THEME
-# --------------------------------------------------
 
 st.markdown("""
 <style>
-    .stApp {
-        background-color: #111018;
-        color: #F4F0FA;
-    }
-
-    [data-testid="stSidebar"] {
-        background-color: #191624;
-        border-right: 1px solid #35264F;
-    }
-
-    h1, h2, h3 {
-        color: #C9A7FF !important;
-    }
-
-    p, label, span {
-        color: #E5DDF0;
-    }
-
-    [data-testid="stMetric"] {
-        background: linear-gradient(135deg, #211A30, #302044);
-        border: 1px solid #65439A;
-        padding: 18px;
-        border-radius: 14px;
-    }
-
-    [data-testid="stMetricValue"] {
-        color: #D8B9FF;
-    }
-
-    .stButton > button {
-        background-color: #7946B8;
-        color: white;
-        border: none;
-        border-radius: 9px;
-        padding: 9px 18px;
-        font-weight: 600;
-    }
-
-    .stButton > button:hover {
-        background-color: #9565D1;
-        color: white;
-        border: 1px solid #C9A7FF;
-    }
-
-    div[data-baseweb="select"] > div,
-    div[data-baseweb="input"] > div {
-        background-color: #211C2C;
-    }
-
-    .hero {
-        background: linear-gradient(120deg, #21172F, #392153);
-        padding: 28px;
-        border-radius: 18px;
-        border: 1px solid #7048A4;
-        margin-bottom: 22px;
-    }
-
-    .hero h1 {
-        margin-bottom: 5px;
-    }
-
-    .hero p {
-        color: #D9C9EB;
-        font-size: 16px;
-    }
-
-    .section-card {
-        background-color: #1D1928;
-        padding: 18px;
-        border-radius: 12px;
-        border: 1px solid #423052;
-    }
-
-    #MainMenu, footer {
-        visibility: hidden;
-    }
+.stApp {
+    background: #11111b;
+    color: #f4f0ff;
+}
+[data-testid="stSidebar"] {
+    background: #1b1928;
+}
+h1, h2, h3 {
+    color: #c4a5ff !important;
+}
+.stButton>button {
+    background: #8755dc;
+    color: white;
+    border-radius: 10px;
+    border: none;
+}
+.stButton>button:hover {
+    background: #a77af5;
+    color: white;
+}
+[data-testid="stMetric"] {
+    background: #211d32;
+    padding: 18px;
+    border-radius: 12px;
+    border: 1px solid #44335f;
+}
 </style>
 """, unsafe_allow_html=True)
 
-
-# --------------------------------------------------
-# DATABASE
-# --------------------------------------------------
-
-def initialize_database():
-    conn = sqlite3.connect(DB_NAME)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS food_records (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT,
-            meal TEXT,
-            food_item TEXT,
-            attendance INTEGER,
-            prepared_quantity REAL,
-            consumed_quantity REAL,
-            leftover_quantity REAL,
-            special_event TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-
-def save_records(data):
-    conn = sqlite3.connect(DB_NAME)
-
-    for _, row in data.iterrows():
-        conn.execute("""
-            INSERT INTO food_records (
-                date, meal, food_item, attendance,
-                prepared_quantity, consumed_quantity,
-                leftover_quantity, special_event
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            str(row["date"]),
-            str(row["meal"]),
-            str(row["food_item"]),
-            int(row["attendance"]),
-            float(row["prepared_quantity"]),
-            float(row["consumed_quantity"]),
-            float(row["leftover_quantity"]),
-            str(row["special_event"])
-        ))
-
-    conn.commit()
-    conn.close()
-
-
-def load_saved_records():
-    conn = sqlite3.connect(DB_NAME)
-    data = pd.read_sql_query(
-        "SELECT * FROM food_records ORDER BY date",
-        conn
+if "records" not in st.session_state:
+    st.session_state.records = pd.DataFrame(
+        columns=["Date", "Food", "Prepared", "Consumed", "Wasted"]
     )
-    conn.close()
 
-    if not data.empty:
-        data = data.drop(columns=["id"], errors="ignore")
+st.title("🍃 FoodWise AI")
+st.caption("AI-Powered Food Waste Prediction & Prevention System")
 
+st.sidebar.title("Navigation")
+page = st.sidebar.radio(
+    "Choose Module",
+    [
+        "Dashboard",
+        "AI Demand Prediction",
+        "Food Waste Tracker",
+        "Dataset & Model",
+        "Smart Recommendations",
+        "Reports"
+    ]
+)
+
+def sample_data():
+    rng = np.random.default_rng(42)
+    days = 180
+    data = pd.DataFrame({
+        "Day": np.arange(days),
+        "DayOfWeek": np.arange(days) % 7,
+        "Temperature": rng.uniform(20, 38, days),
+        "SpecialEvent": rng.integers(0, 2, days),
+        "Attendance": rng.integers(80, 301, days)
+    })
+    data["Demand"] = (
+        data["Attendance"] * 0.82
+        + data["SpecialEvent"] * 18
+        - (data["Temperature"] - 28) * 0.5
+        + rng.normal(0, 9, days)
+    ).clip(20).round()
     return data
 
+if "dataset" not in st.session_state:
+    st.session_state.dataset = sample_data()
 
-initialize_database()
-
-
-# --------------------------------------------------
-# DATA PREPARATION
-# --------------------------------------------------
-
-def prepare_data(data):
-    data = data.copy()
-    data.columns = [str(c).strip().lower() for c in data.columns]
-
-    missing = [c for c in REQUIRED_COLUMNS if c not in data.columns]
-
-    if missing:
-        raise ValueError(
-            "Missing required columns: " + ", ".join(missing)
-        )
-
-    if "special_event" not in data.columns:
-        data["special_event"] = "No"
-
-    if "leftover_quantity" not in data.columns:
-        data["leftover_quantity"] = (
-            pd.to_numeric(data["prepared_quantity"], errors="coerce")
-            - pd.to_numeric(data["consumed_quantity"], errors="coerce")
-        ).clip(lower=0)
-
-    data["date"] = pd.to_datetime(data["date"], errors="coerce")
-    data["attendance"] = pd.to_numeric(
-        data["attendance"], errors="coerce"
-    )
-    data["prepared_quantity"] = pd.to_numeric(
-        data["prepared_quantity"], errors="coerce"
-    )
-    data["consumed_quantity"] = pd.to_numeric(
-        data["consumed_quantity"], errors="coerce"
-    )
-    data["leftover_quantity"] = pd.to_numeric(
-        data["leftover_quantity"], errors="coerce"
-    )
-
-    data = data.dropna(subset=[
-        "date", "attendance", "prepared_quantity",
-        "consumed_quantity"
-    ])
-
-    data["attendance"] = data["attendance"].clip(lower=0)
-    data["prepared_quantity"] = data["prepared_quantity"].clip(lower=0)
-    data["consumed_quantity"] = data["consumed_quantity"].clip(lower=0)
-    data["leftover_quantity"] = data["leftover_quantity"].clip(lower=0)
-
-    data["meal"] = data["meal"].astype(str).str.strip().str.title()
-    data["food_item"] = data["food_item"].astype(str).str.strip()
-    data["special_event"] = (
-        data["special_event"].fillna("No").astype(str).str.strip()
-    )
-
-    data["day"] = data["date"].dt.day_name()
-    data["date"] = data["date"].dt.strftime("%Y-%m-%d")
-
-    data = data[data["food_item"] != ""]
-    data = data[data["meal"] != ""]
-
-    return data.reset_index(drop=True)
-
-
-# --------------------------------------------------
-# SYNTHETIC DEMO DATA
-# --------------------------------------------------
-
-def generate_demo_data():
-    rng = np.random.default_rng(42)
-
-    food_items = [
-        "Vegetable Rice", "Chicken Biryani", "Idli",
-        "Dosa", "Chapati", "Pongal"
+def train_model(df):
+    features = [
+        "DayOfWeek", "Temperature",
+        "SpecialEvent", "Attendance"
     ]
-
-    meals = ["Breakfast", "Lunch", "Dinner"]
-
-    records = []
-    start = date.today() - timedelta(days=149)
-
-    for day_number in range(150):
-        current_date = start + timedelta(days=day_number)
-        day_name = current_date.strftime("%A")
-
-        weekend = day_name in ["Saturday", "Sunday"]
-        event = "Yes" if day_number % 30 == 0 else "No"
-
-        attendance = int(
-            rng.normal(450 if not weekend else 300, 45)
-        )
-        attendance = max(100, attendance)
-
-        for meal in meals:
-            for food in food_items:
-                popularity = {
-                    "Vegetable Rice": 0.72,
-                    "Chicken Biryani": 0.85,
-                    "Idli": 0.68,
-                    "Dosa": 0.75,
-                    "Chapati": 0.60,
-                    "Pongal": 0.65
-                }[food]
-
-                meal_factor = 1.0 if meal == "Lunch" else 0.75
-                event_factor = 1.10 if event == "Yes" else 1.0
-
-                expected = (
-                    attendance * popularity *
-                    meal_factor * event_factor
-                )
-
-                consumed = max(
-                    0, int(rng.normal(expected, 15))
-                )
-
-                prepared = max(
-                    consumed,
-                    int(consumed * rng.uniform(1.04, 1.22))
-                )
-
-                leftover = max(0, prepared - consumed)
-
-                records.append({
-                    "date": current_date.isoformat(),
-                    "meal": meal,
-                    "food_item": food,
-                    "attendance": attendance,
-                    "prepared_quantity": prepared,
-                    "consumed_quantity": consumed,
-                    "leftover_quantity": leftover,
-                    "special_event": event
-                })
-
-    return prepare_data(pd.DataFrame(records))
-
-
-# --------------------------------------------------
-# REPORT GENERATION
-# --------------------------------------------------
-
-def create_pdf_report(data):
-    buffer = BytesIO()
-    document = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        rightMargin=35,
-        leftMargin=35,
-        topMargin=35,
-        bottomMargin=35
+    X = df[features]
+    y = df["Demand"]
+    if len(df) < 10:
+        return None, None, None, None
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42
     )
+    model = RandomForestRegressor(
+        n_estimators=120,
+        random_state=42
+    )
+    model.fit(X_train, y_train)
+    predictions = model.predict(X_test)
+    mae = mean_absolute_error(y_test, predictions)
+    score = r2_score(y_test, predictions)
+    return model, features, mae, score
 
-    styles = getSampleStyleSheet()
-    elements = []
+dataset = st.session_state.dataset
+model, features, mae, score = train_model(dataset)
 
-    elements.append(Paragraph(
-        "FoodWise AI - Food Waste Report",
-        styles["Title"]
-    ))
-    elements.append(Spacer(1, 15))
+if page == "Dashboard":
+    st.header("Your Food Sustainability Overview")
+    records = st.session_state.records
 
-    total_prepared = data["prepared_quantity"].sum()
-    total_consumed = data["consumed_quantity"].sum()
-    total_leftover = data["leftover_quantity"].sum()
-
-    waste_percentage = (
-        total_leftover / total_prepared * 100
+    total_prepared = records["Prepared"].sum()
+    total_consumed = records["Consumed"].sum()
+    total_wasted = records["Wasted"].sum()
+    waste_rate = (
+        total_wasted / total_prepared * 100
         if total_prepared > 0 else 0
     )
 
-    summary = [
-        ["Metric", "Quantity"],
-        ["Total Prepared", f"{total_prepared:,.0f}"],
-        ["Total Consumed", f"{total_consumed:,.0f}"],
-        ["Total Leftover", f"{total_leftover:,.0f}"],
-        ["Waste Percentage", f"{waste_percentage:.2f}%"]
-    ]
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Food Prepared", f"{total_prepared:.0f}")
+    c2.metric("Food Consumed", f"{total_consumed:.0f}")
+    c3.metric("Food Wasted", f"{total_wasted:.0f}")
+    c4.metric("Waste Rate", f"{waste_rate:.1f}%")
 
-    table = Table(summary, colWidths=[240, 180])
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#7048A4")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-        ("PADDING", (0, 0), (-1, -1), 9),
-    ]))
-
-    elements.append(table)
-    elements.append(Spacer(1, 20))
-
-    elements.append(Paragraph(
-        "Food Item Waste Summary",
-        styles["Heading2"]
-    ))
-
-    grouped = (
-        data.groupby("food_item")["leftover_quantity"]
-        .sum()
-        .reset_index()
-        .sort_values("leftover_quantity", ascending=False)
-    )
-
-    table_data = [["Food Item", "Leftover Quantity"]]
-
-    for _, row in grouped.iterrows():
-        table_data.append([
-            str(row["food_item"]),
-            f"{row['leftover_quantity']:,.0f}"
-        ])
-
-    food_table = Table(table_data, colWidths=[240, 180])
-    food_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#7048A4")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-        ("PADDING", (0, 0), (-1, -1), 8),
-    ]))
-
-    elements.append(food_table)
-    elements.append(Spacer(1, 15))
-    elements.append(Paragraph(
-        "Generated by FoodWise AI",
-        styles["Normal"]
-    ))
-
-    document.build(elements)
-    buffer.seek(0)
-
-    return buffer
-
-
-# --------------------------------------------------
-# SIDEBAR AND DATA SOURCE
-# --------------------------------------------------
-
-st.sidebar.markdown("# 🍽️ FoodWise AI")
-st.sidebar.caption("Intelligent Food Demand & Waste Management")
-
-page = st.sidebar.radio(
-    "NAVIGATION",
-    [
-        "Dashboard",
-        "Demand Prediction",
-        "Waste Monitoring",
-        "Data Management",
-        "Reports",
-        "About Project"
-    ]
-)
-
-st.sidebar.divider()
-st.sidebar.subheader("Data Source")
-
-data_source = st.sidebar.selectbox(
-    "Choose your dataset",
-    ["Demo Data", "Saved Records", "Upload CSV"]
-)
-
-uploaded_data = None
-
-if data_source == "Demo Data":
-    df = generate_demo_data()
-    st.sidebar.info(
-        "You are viewing synthetic demonstration data, "
-        "not real cafeteria records."
-    )
-
-elif data_source == "Saved Records":
-    raw_data = load_saved_records()
-
-    if raw_data.empty:
-        df = pd.DataFrame()
-        st.sidebar.warning(
-            "No saved records yet. Add records in Data Management."
+    st.subheader("Food Waste Analytics")
+    if not records.empty:
+        fig = px.bar(
+            records, x="Date",
+            y=["Consumed", "Wasted"],
+            barmode="group",
+            title="Daily Food Consumption vs Waste",
+            template="plotly_dark"
         )
+        st.plotly_chart(fig, use_container_width=True)
     else:
-        df = prepare_data(raw_data)
+        st.info("Add food records in Food Waste Tracker to view analytics.")
 
-else:
-    uploaded_file = st.sidebar.file_uploader(
-        "Upload food data CSV",
+    st.subheader("AI Model Status")
+    st.success("Food demand prediction model trained successfully.")
+    st.write(f"Model MAE: {mae:.2f} food portions")
+    st.write(f"Model R² score: {score:.3f}")
+
+elif page == "AI Demand Prediction":
+    st.header("🤖 AI Food Demand Prediction")
+    st.write("Enter the expected cafeteria conditions.")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        attendance = st.number_input(
+            "Expected Student Attendance",
+            min_value=1, max_value=2000, value=200
+        )
+        temperature = st.slider(
+            "Temperature (°C)", 10, 45, 28
+        )
+    with col2:
+        weekday = st.selectbox(
+            "Day of Week",
+            ["Monday", "Tuesday", "Wednesday",
+             "Thursday", "Friday", "Saturday", "Sunday"]
+        )
+        event = st.selectbox(
+            "Special Event?", ["No", "Yes"]
+        )
+
+    if st.button("Predict Food Demand"):
+        prediction = model.predict(pd.DataFrame([{
+            "DayOfWeek": [
+                "Monday", "Tuesday", "Wednesday",
+                "Thursday", "Friday", "Saturday", "Sunday"
+            ].index(weekday),
+            "Temperature": temperature,
+            "SpecialEvent": 1 if event == "Yes" else 0,
+            "Attendance": attendance
+        }]))[0]
+
+        recommended = int(round(prediction))
+        st.success(f"Predicted demand: {recommended} portions")
+        st.metric("Recommended preparation quantity", recommended)
+        st.info(
+            "Prepare approximately the predicted quantity. "
+            "Adjust for actual attendance and serving size."
+        )
+
+elif page == "Food Waste Tracker":
+    st.header("📊 Food Waste Tracker")
+
+    with st.form("food_form"):
+        record_date = st.date_input("Date", date.today())
+        food = st.text_input("Food Item", placeholder="Example: Rice")
+        prepared = st.number_input(
+            "Quantity Prepared", min_value=0, value=100
+        )
+        consumed = st.number_input(
+            "Quantity Consumed", min_value=0, value=80
+        )
+        submitted = st.form_submit_button("Save Food Record")
+
+        if submitted:
+            if not food.strip():
+                st.error("Please enter a food item.")
+            elif consumed > prepared:
+                st.error("Consumed quantity cannot exceed prepared quantity.")
+            else:
+                wasted = prepared - consumed
+                new_record = pd.DataFrame([{
+                    "Date": str(record_date),
+                    "Food": food.strip(),
+                    "Prepared": prepared,
+                    "Consumed": consumed,
+                    "Wasted": wasted
+                }])
+                st.session_state.records = pd.concat(
+                    [st.session_state.records, new_record],
+                    ignore_index=True
+                )
+                st.success("Food record saved successfully!")
+
+    st.subheader("Recorded Food Data")
+    st.dataframe(
+        st.session_state.records,
+        use_container_width=True
+    )
+
+    if st.button("Clear All Records"):
+        st.session_state.records = pd.DataFrame(
+            columns=["Date", "Food", "Prepared", "Consumed", "Wasted"]
+        )
+        st.rerun()
+
+elif page == "Dataset & Model":
+    st.header("📂 Dataset & Machine Learning")
+
+    uploaded = st.file_uploader(
+        "Upload CSV dataset",
         type=["csv"]
     )
 
-    if uploaded_file is not None:
+    if uploaded is not None:
         try:
-            raw_data = pd.read_csv(uploaded_file)
-            df = prepare_data(raw_data)
+            custom = pd.read_csv(uploaded)
+            required = [
+                "DayOfWeek", "Temperature",
+                "SpecialEvent", "Attendance", "Demand"
+            ]
+            if all(c in custom.columns for c in required):
+                if len(custom) >= 10 and custom[required].notna().all().all():
+                    st.session_state.dataset = custom[required].copy()
+                    st.success("Dataset loaded successfully.")
+                    st.rerun()
+                else:
+                    st.error("Dataset needs at least 10 complete rows.")
+            else:
+                st.error("Missing required columns: " + ", ".join(required))
+        except Exception as e:
+            st.error(f"Unable to read CSV: {e}")
 
-            st.sidebar.success(
-                f"Loaded {len(df)} records."
-            )
+    st.subheader("Current Dataset")
+    st.dataframe(dataset.head(20), use_container_width=True)
+    st.write(f"Total records: {len(dataset)}")
+    st.write(f"Mean Absolute Error: {mae:.2f}")
+    st.write(f"R² Score: {score:.3f}")
 
-            if st.sidebar.button("Save uploaded records"):
-                save_records(df)
-                st.sidebar.success("Records saved to database.")
-
-        except Exception as error:
-            df = pd.DataFrame()
-            st.sidebar.error(str(error))
-    else:
-        df = pd.DataFrame()
-        st.sidebar.info("Upload a CSV file to continue.")
-
-
-# --------------------------------------------------
-# HEADER
-# --------------------------------------------------
-
-st.markdown("""
-<div class="hero">
-    <h1>🍽️ FoodWise AI</h1>
-    <p>Predict smarter. Prepare better. Waste less.</p>
-    <p>An intelligent food demand prediction and waste
-    reduction system powered by machine learning.</p>
-</div>
-""", unsafe_allow_html=True)
-
-
-# --------------------------------------------------
-# DASHBOARD
-# --------------------------------------------------
-
-if page == "Dashboard":
-
-    st.subheader("📊 Food Management Dashboard")
-
-    if df.empty:
-        st.warning("No data available. Add or upload records first.")
-
-    else:
-        prepared = df["prepared_quantity"].sum()
-        consumed = df["consumed_quantity"].sum()
-        leftover = df["leftover_quantity"].sum()
-
-        waste_rate = (
-            leftover / prepared * 100 if prepared > 0 else 0
-        )
-
-        col1, col2, col3, col4 = st.columns(4)
-
-        col1.metric("Total Prepared", f"{prepared:,.0f}")
-        col2.metric("Total Consumed", f"{consumed:,.0f}")
-        col3.metric("Total Leftover", f"{leftover:,.0f}")
-        col4.metric("Waste Rate", f"{waste_rate:.1f}%")
-
-        st.divider()
-
-        left, right = st.columns(2)
-
-        with left:
-            st.markdown("### Food Consumption")
-            consumption = (
-                df.groupby("food_item")["consumed_quantity"]
-                .sum()
-                .reset_index()
-                .sort_values("consumed_quantity", ascending=False)
-            )
-
-            fig = px.bar(
-                consumption,
-                x="food_item",
-                y="consumed_quantity",
-                color="consumed_quantity",
-                title="Consumption by Food Item",
-                color_continuous_scale="Purples"
-            )
-            fig.update_layout(template="plotly_dark")
-            st.plotly_chart(fig, use_container_width=True)
-
-        with right:
-            st.markdown("### Food Waste")
-            waste = (
-                df.groupby("food_item")["leftover_quantity"]
-                .sum()
-                .reset_index()
-                .sort_values("leftover_quantity", ascending=False)
-            )
-
-            fig = px.pie(
-                waste,
-                names="food_item",
-                values="leftover_quantity",
-                title="Leftover Distribution",
-                hole=0.45,
-                color_discrete_sequence=px.colors.sequential.Purples
-            )
-            fig.update_layout(template="plotly_dark")
-            st.plotly_chart(fig, use_container_width=True)
-
-        st.markdown("### Recent Food Records")
-        st.dataframe(
-            df.tail(15),
-            use_container_width=True,
-            hide_index=True
-        )
-
-
-# --------------------------------------------------
-# MACHINE LEARNING MODEL
-# --------------------------------------------------
-
-elif page == "Demand Prediction":
-
-    st.subheader("🤖 AI Food Demand Prediction")
-
-    st.write(
-        "Estimate how much of a food item may be consumed "
-        "using attendance, meal, day and event information."
+    st.download_button(
+        "Download Sample Dataset",
+        dataset.to_csv(index=False),
+        "foodwise_sample_dataset.csv",
+        "text/csv"
     )
 
-    if df.empty:
-        st.warning("Add data before using demand prediction.")
+    if st.button("Restore Sample Dataset"):
+        st.session_state.dataset = sample_data()
+        st.rerun()
 
-    elif len(df) < 30:
-        st.warning(
-            "At least 30 valid records are recommended "
-            "for model training. Add more historical data."
+elif page == "Smart Recommendations":
+    st.header("💡 Smart Food Waste Recommendations")
+
+    records = st.session_state.records
+
+    if records.empty:
+        st.info("Add food records to receive data-based recommendations.")
+    else:
+        total = records["Prepared"].sum()
+        waste = records["Wasted"].sum()
+        rate = waste / total * 100 if total else 0
+
+        st.metric("Overall Waste Percentage", f"{rate:.2f}%")
+
+        if rate > 20:
+            st.warning("High food wastage detected. Reduce preparation quantities and review attendance.")
+        elif rate > 10:
+            st.info("Moderate food wastage. Monitor daily demand.")
+        else:
+            st.success("Good food utilization. Continue monitoring.")
+
+        food_summary = records.groupby("Food")[
+            ["Prepared", "Consumed", "Wasted"]
+        ].sum().sort_values("Wasted", ascending=False)
+
+        st.subheader("Food Items with Highest Waste")
+        st.dataframe(food_summary, use_container_width=True)
+
+        highest = food_summary.index[0]
+        st.write(f"Review preparation quantities for **{highest}**.")
+
+        st.write(
+            "Suggestions: Use historical demand, "
+            "encourage portion control, and safely redistribute "
+            "eligible surplus food through approved channels."
         )
 
+elif page == "Reports":
+    st.header("📄 FoodWise AI Reports")
+
+    records = st.session_state.records
+
+    if records.empty:
+        st.info("Add food records before generating reports.")
     else:
-        model_data = df.copy()
-        model_data["date"] = pd.to_datetime(model_data["date"])
-        model_data = model_data.sort_values("date")
+        st.subheader("Food Waste Report")
+        st.dataframe(records, use_container_width=True)
 
-        split_index = int(len(model_data) * 0.8)
+        csv = records.to_csv(index=False)
+        st.download_button(
+            "Download CSV Report",
+            csv,
+            "FoodWise_AI_Report.csv",
+            "text/csv"
+        )
 
-        train_data = model_data.iloc[:split_index]
-        test_data = model_data.iloc[split_index:]
-
-        if len(train_data) < 10 or len(test_data) < 2:
-            st.warning("Not enough data for a reliable evaluation.")
-
-        else:
-            categorical_features = [
-                "day", "meal", "food_item", "special_event"
-            ]
-
-            numerical_features = ["attendance"]
-
-            preprocessor = ColumnTransformer(
-                transformers=[
-                    (
-                        "categorical",
-                        OneHotEncoder(handle_unknown="ignore"),
-                        categorical_features
-                    ),
-                    ("numerical", "passthrough", numerical_features)
-                ]
+        buffer = BytesIO()
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            records.to_excel(
+                writer, index=False, sheet_name="Food Waste"
             )
 
-            model = Pipeline([
-                ("preprocessor", preprocessor),
-                ("regressor", RandomForestRegressor(
-                    n_estimators=200,
-                    random_state=42,
-                    min_samples_leaf=2,
-                    n_jobs=-1
-                ))
-            ])
+        st.download_button(
+            "Download Excel Report",
+            buffer.getvalue(),
+            "FoodWise_AI_Report.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
-            X_train = train_data[MODEL_FEATURES]
-            y_train = train_data["consumed_quantity"]
-
-            X_test = test_data[MODEL_FEATURES]
-            y_test = test_data["consumed_quantity"]
-
-            model.fit(X_train, y_train)
-            test_predictions = model.predict(X_test)
-
-            mae = mean_absolute_error(y_test, test_predictions)
-            rmse = np.sqrt(
-                mean_squared_error(y_test, test_predictions)
-            )
-            r2 = r2_score(y_test, test_predictions)
-
-            st.markdown("### Model Evaluation")
-
-            m1, m2, m3 = st.columns(3)
-            m1.metric("MAE", f"{mae:.2f}")
-            m2.metric("RMSE", f"{rmse:.2f}")
-            m3.metric("R² Score", f"{r2:.3f}")
-
-            st.caption(
-                "Evaluation uses a chronological 80/20 train-test split. "
-                "Metrics describe this dataset and are not a guarantee "
-                "of future prediction accuracy."
-            )
-
-            st.divider()
-            st.markdown("### Predict Future Food Demand")
-
-            with st.form("prediction_form"):
-                c1, c2 = st.columns(2)
-
-                with c1:
-                    prediction_date = st.date_input(
-                        "Prediction date",
-                        value=date.today() + timedelta(days=1)
-                    )
-
-                    selected_meal = st.selectbox(
-                        "Meal",
-                        sorted(df["meal"].unique())
-                    )
-
-                    selected_food = st.selectbox(
-                        "Food item",
-                        sorted(df["food_item"].unique())
-                    )
-
-                with c2:
-                    expected_attendance = st.number_input(
-                        "Expected attendance",
-                        min_value=0,
-                        value=300,
-                        step=10
-                    )
-
-                    special_event = st.selectbox(
-                        "Special event?",
-                        ["No", "Yes"]
-                    )
-
-                submitted = st.form_submit_button(
-                    "Predict Food Demand"
-                )
+st.sidebar.markdown("---")
+st.sidebar.caption("FoodWise AI | Sustainable Food Management")
+st.sidebar.caption("AI Innovation Prototype")
