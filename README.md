@@ -1,90 +1,42 @@
-
 # 🍃 FoodWise AI
+### Smart Food Intelligence & Waste Reduction Platform
 
-### AI-Powered Food Waste Prediction and Prevention System
-
-FoodWise AI is an intelligent food management application designed to predict food demand, monitor food waste, and support smarter food preparation decisions.
+FoodWise AI is an AI-powered food intelligence platform designed to encourage smarter food decisions, reduce food waste, and promote sustainable consumption through technology.
 
 ## 🎯 Problem Statement
-
-Food wastage in cafeterias and food-serving institutions occurs due to inaccurate demand estimation, overproduction, and a lack of systematic food consumption monitoring.
+Food waste and inefficient food consumption contribute to environmental damage and resource loss. People often lack intelligent tools to make informed food-related decisions and manage food resources effectively.
 
 ## 💡 Proposed Solution
-
-FoodWise AI uses machine learning and data analytics to estimate food demand, track leftover quantities, identify wastage patterns, and provide actionable recommendations.
+FoodWise AI provides an intelligent software platform that uses AI/ML-based features to support better food-related decisions and promote food waste reduction.
 
 ## ✨ Key Features
-
-- AI-based food demand prediction
-- Random Forest machine learning model
-- Food preparation recommendations
-- Food waste tracking
-- Interactive analytics dashboard
-- Custom CSV dataset upload
-- Model performance evaluation
-- Smart waste reduction recommendations
-- CSV and Excel report downloads
+- AI-powered food intelligence
+- Food-related analysis and predictions
+- Smart recommendations
+- Interactive data visualizations
+- User-friendly dark-themed interface
+- Sustainable food management support
 
 ## 🛠️ Technologies Used
-
 - Python
 - Streamlit
+- Machine Learning
 - Pandas
-- NumPy
-- Scikit-learn
-- Plotly
-- OpenPyXL
+- Data Visualization
 
-## 🧠 Machine Learning
+## 🚀 Live Application
+[Open FoodWise AI](YOUR_STREAMLIT_APP_LINK)
 
-FoodWise AI uses a Random Forest Regressor.
+## 💻 Source Code
+[View GitHub Repository](https://github.com/jainab55-thasfeekah/FoodWise-AI)
 
-Input features:
-- Day of the week
-- Temperature
-- Special event indicator
-- Expected attendance
-
-Output:
-- Estimated food demand in portions
-
-The initial application uses synthetic demonstration data. Real-world validation requires actual cafeteria records.
-
-## 🚀 Run Locally
-
-Install dependencies:
-
-pip install -r requirements.txt
-
-Run the application:
-
-streamlit run app.py
-
-## 🌍 Expected Impact
-
-- Reduce avoidable food wastage
-- Improve food preparation planning
-- Support data-driven decisions
-- Promote sustainable food management
+## 🌍 Vision
+To use artificial intelligence to support sustainable food consumption, reduce unnecessary food waste, and contribute towards a smarter and greener future.
 
 ## 👩‍💻 Project Information
-
-Project Name: FoodWise AI
-
-Category: AI / Machine Learning
-
-Project Type: Innovation Project
-
-Platform: Web Application
-
-## 📌 Future Enhancements
-
-- Real-time cafeteria integration
-- Advanced demand forecasting
-- Expiry-date monitoring
-- Food donation coordination
-- Multi-cafeteria analytics
+**Project:** FoodWise AI  
+**Category:** AI/ML Innovation Project  
+**Developer:** Jainab Thasfeekah A
 
 ---
-
-**FoodWise AI – Predict Smartly, Waste Less, Sustain More.**
+*Building a smarter and more sustainable future with AI.*
